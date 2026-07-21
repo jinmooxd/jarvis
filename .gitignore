@@ -1,0 +1,9 @@
+node_modules/
+dist/
+server/data/*.json
+!server/data/.gitkeep
+.DS_Store
+*.log
+*.tsbuildinfo
+web/vite.config.js
+web/vite.config.d.ts

@@ -1,0 +1,57 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  background-color: #060607;
+  background-image:
+    radial-gradient(ellipse 900px 600px at 12% -10%, rgba(150, 155, 175, 0.12), transparent 60%),
+    radial-gradient(ellipse 800px 700px at 105% 5%, rgba(110, 115, 135, 0.1), transparent 55%),
+    radial-gradient(ellipse 1000px 800px at 45% 115%, rgba(80, 85, 105, 0.11), transparent 60%),
+    radial-gradient(ellipse 700px 500px at 60% 45%, rgba(100, 102, 118, 0.05), transparent 60%);
+  background-attachment: fixed;
+}
+
+/* thin, unobtrusive scrollbars to match the glass aesthetic */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.14) transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.12);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(255, 255, 255, 0.22);
+  background-clip: content-box;
+}
+
+.glass-panel {
+  background-color: rgba(255, 255, 255, 0.025);
+  backdrop-filter: blur(28px) saturate(120%);
+  -webkit-backdrop-filter: blur(28px) saturate(120%);
+  box-shadow:
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.05),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.015);
+}
+
+/* flatter, more opaque variant for surfaces that hold dense terminal text
+   (readability over glass shimmer) */
+.glass-panel-solid {
+  background-color: rgba(8, 8, 9, 0.75);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
