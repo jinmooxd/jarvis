@@ -1,7 +1,8 @@
-import type { SessionSummary } from "./types";
+import type { SessionOrigin, SessionSummary } from "./types";
 
 export type RepoGroup = {
   repoPath: string;
+  origin: SessionOrigin;
   label: string;
   sessions: SessionSummary[];
 };
@@ -10,12 +11,16 @@ export function repoName(path: string): string {
   return path.split("/").filter(Boolean).pop() ?? path;
 }
 
+// Groups are keyed by origin + repo path: ~/jarvis on the Mac and on the
+// droplet are different checkouts and must not merge into one group.
 export function groupByRepo(sessions: SessionSummary[]): RepoGroup[] {
   const map = new Map<string, RepoGroup>();
   for (const s of sessions) {
-    const key = s.repoPath || "(unknown)";
+    const origin: SessionOrigin = s.origin ?? "local";
+    const repoPath = s.repoPath || "(unknown)";
+    const key = `${origin}:${repoPath}`;
     if (!map.has(key)) {
-      map.set(key, { repoPath: key, label: repoName(key), sessions: [] });
+      map.set(key, { repoPath, origin, label: repoName(repoPath), sessions: [] });
     }
     map.get(key)!.sessions.push(s);
   }
@@ -23,7 +28,11 @@ export function groupByRepo(sessions: SessionSummary[]): RepoGroup[] {
   for (const g of groups) {
     g.sessions.sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
   }
-  groups.sort((a, b) => a.label.toLowerCase().localeCompare(b.label.toLowerCase()));
+  // Local groups first, then cloud; alphabetical within each.
+  groups.sort((a, b) => {
+    if (a.origin !== b.origin) return a.origin === "local" ? -1 : 1;
+    return a.label.toLowerCase().localeCompare(b.label.toLowerCase());
+  });
   return groups;
 }
 

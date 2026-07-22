@@ -14,11 +14,29 @@ import { startMirror, type MirrorHandle } from "./mirror.js";
 import { getRecord, putRecord, markClosed } from "./store.js";
 import { listSessions } from "@anthropic-ai/claude-agent-sdk";
 import { getUsageState, onUsageUpdate } from "./usage.js";
+import { getCloudStatus, checkCloud, proxyCloudRequest, handleCloudSessionSocket } from "./cloud.js";
 import { PORT, HOST, WEB_DIST } from "./config.js";
 
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+// Cheap liveness probe — what a hub jarvis pings to decide "cloud connected".
+app.get("/api/health", (_req, res) => {
+  res.json({ ok: true });
+});
+
+app.get("/api/cloud/status", (_req, res) => {
+  res.json(getCloudStatus());
+});
+
+// "Reconnect" = re-probe now instead of waiting for the next periodic ping.
+app.post("/api/cloud/reconnect", async (_req, res) => {
+  res.json(await checkCloud());
+});
+
+// Everything else under /api/cloud/ is forwarded verbatim to the cloud jarvis.
+app.all("/api/cloud/*", proxyCloudRequest);
 
 app.get("/api/repos", async (_req, res) => {
   res.json(await listKnownRepos());
@@ -113,6 +131,8 @@ server.on("upgrade", (req, socket, head) => {
   wss.handleUpgrade(req, socket, head, (ws) => {
     if (url.pathname === "/ws/usage") {
       handleUsageSocket(ws);
+    } else if (url.pathname.startsWith("/ws/cloud/sessions/")) {
+      handleCloudSessionSocket(ws, url.pathname.slice("/ws/cloud/sessions/".length));
     } else if (url.pathname.startsWith("/ws/sessions/")) {
       const id = url.pathname.slice("/ws/sessions/".length);
       handleSessionSocket(ws, id);

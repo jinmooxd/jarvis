@@ -1,19 +1,27 @@
 import { useEffect, useState } from "react";
-import { api } from "../api";
-import type { SessionDetails } from "../types";
+import { apiFor } from "../api";
+import type { SessionDetails, SessionOrigin } from "../types";
 
 function fmtDate(ms: number | undefined): string {
   if (!ms) return "—";
   return new Date(ms).toLocaleString();
 }
 
-export default function SessionDetailsModal({ id, onClose }: { id: string; onClose: () => void }) {
+export default function SessionDetailsModal({
+  id,
+  origin = "local",
+  onClose,
+}: {
+  id: string;
+  origin?: SessionOrigin;
+  onClose: () => void;
+}) {
   const [details, setDetails] = useState<SessionDetails | undefined>();
   const [error, setError] = useState<string | undefined>();
 
   useEffect(() => {
-    api.getDetails(id).then(setDetails).catch((e) => setError(e.message));
-  }, [id]);
+    apiFor(origin).getDetails(id).then(setDetails).catch((e) => setError(e.message));
+  }, [id, origin]);
 
   const rows: [string, string][] = details
     ? [

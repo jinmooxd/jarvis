@@ -1,20 +1,42 @@
 import { useCallback, useEffect, useState } from "react";
-import { api } from "./api";
+import { api, apiFor, cloudApi } from "./api";
 import CreateSessionModal from "./components/CreateSessionModal";
 import SessionList from "./components/SessionList";
 import TerminalView from "./components/TerminalView";
 import TopBar from "./components/TopBar";
 import { flattenSessions } from "./sessionGroups";
-import type { SessionSummary } from "./types";
+import type { CloudStatus, SessionSummary } from "./types";
 
 export default function App() {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
+  const [cloud, setCloud] = useState<CloudStatus>({ configured: false, connected: false });
   const [selectedId, setSelectedId] = useState<string | undefined>();
   const [showCreate, setShowCreate] = useState(false);
 
-  const refresh = useCallback(() => {
-    api.listSessions().then(setSessions).catch(() => {});
+  const refresh = useCallback(async () => {
+    const status = await cloudApi.status().catch((): CloudStatus => ({ configured: false, connected: false }));
+    setCloud(status);
+    const [local, remote] = await Promise.all([
+      api
+        .listSessions()
+        .then((ss) => ss.map((s) => ({ ...s, origin: "local" as const })))
+        .catch(() => undefined),
+      status.connected
+        ? apiFor("cloud")
+            .listSessions()
+            .then((ss) => ss.map((s) => ({ ...s, origin: "cloud" as const })))
+            .catch(() => [])
+        : Promise.resolve([]),
+    ]);
+    // If the local list failed the page itself is in trouble — keep what we had.
+    if (local) setSessions([...local, ...remote]);
   }, []);
+
+  const reconnectCloud = useCallback(async () => {
+    const status = await cloudApi.reconnect().catch(() => undefined);
+    if (status) setCloud(status);
+    await refresh();
+  }, [refresh]);
 
   useEffect(() => {
     refresh();
@@ -77,10 +99,12 @@ export default function App() {
         >
           <SessionList
             sessions={sessions}
+            cloud={cloud}
             selectedId={selectedId}
             onSelect={setSelectedId}
             onCreate={() => setShowCreate(true)}
             onRefresh={refresh}
+            onReconnect={reconnectCloud}
           />
         </div>
         <div
@@ -90,8 +114,9 @@ export default function App() {
         >
           {selected ? (
             <TerminalView
-              key={selected.claudeSessionId}
+              key={`${selected.origin ?? "local"}:${selected.claudeSessionId}`}
               sessionId={selected.claudeSessionId}
+              origin={selected.origin ?? "local"}
               name={selected.name}
               status={selected.status}
               context={selected.context}
@@ -107,6 +132,7 @@ export default function App() {
       </div>
       {showCreate && (
         <CreateSessionModal
+          cloud={cloud}
           onClose={() => setShowCreate(false)}
           onCreated={(id) => {
             setShowCreate(false);

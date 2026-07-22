@@ -6,7 +6,7 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import { ClipboardAddon } from "@xterm/addon-clipboard";
 import "@xterm/xterm/css/xterm.css";
 import { sessionSocketUrl } from "../api";
-import type { ContextInfo, SessionStatus } from "../types";
+import type { ContextInfo, SessionOrigin, SessionStatus } from "../types";
 import ContextBadge from "./ContextBadge";
 
 type ConnState = "connecting" | "open" | "exited" | "disconnected";
@@ -28,12 +28,14 @@ const MOBILE_KEYS: { label: string; seq: string }[] = [
 
 export default function TerminalView({
   sessionId,
+  origin = "local",
   name,
   status,
   context,
   onBack,
 }: {
   sessionId: string;
+  origin?: SessionOrigin;
   name: string;
   status: SessionStatus;
   context: ContextInfo | undefined;
@@ -76,7 +78,7 @@ export default function TerminalView({
     fit.fit();
     term.focus();
 
-    const ws = new WebSocket(sessionSocketUrl(sessionId));
+    const ws = new WebSocket(sessionSocketUrl(sessionId, origin));
     ws.binaryType = "arraybuffer";
     wsRef.current = ws;
     term.loadAddon(new ClipboardAddon());
@@ -137,7 +139,7 @@ export default function TerminalView({
       wsRef.current = null;
       termRef.current = null;
     };
-  }, [sessionId, attempt, touch]);
+  }, [sessionId, origin, attempt, touch]);
 
   function sendKey(seq: string) {
     const ws = wsRef.current;
@@ -162,7 +164,10 @@ export default function TerminalView({
             }`}
           />
           <span className="truncate font-mono text-[13px] font-medium text-neutral-200">{name}</span>
-          <span className="hidden text-xs text-neutral-600 sm:inline">{status}</span>
+          <span className="hidden text-xs text-neutral-600 sm:inline">
+            {status}
+            {origin === "cloud" ? " · cloud" : ""}
+          </span>
         </div>
         <ContextBadge context={context} size="md" />
       </div>

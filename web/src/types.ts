@@ -1,5 +1,17 @@
 export type SessionStatus = "live" | "external" | "cold";
 
+// Which jarvis instance a session lives on. Tagged client-side when the two
+// lists are merged; the servers themselves don't know about origins.
+export type SessionOrigin = "local" | "cloud";
+
+export type CloudStatus = {
+  configured: boolean;
+  url?: string;
+  connected: boolean;
+  error?: string;
+  checkedAt?: number;
+};
+
 export type ContextInfo = {
   usedTokens: number;
   windowTokens: number;
@@ -16,6 +28,7 @@ export type SessionSummary = {
   context?: ContextInfo;
   lastModified: number;
   createdAt?: number;
+  origin?: SessionOrigin;
 };
 
 export type ModelOption = {

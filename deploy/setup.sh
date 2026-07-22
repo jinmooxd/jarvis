@@ -25,6 +25,19 @@ step "System packages (tmux, git, build-essential for node-pty)"
 sudo apt-get update -qq
 sudo apt-get install -y -qq tmux git build-essential curl
 
+if ! swapon --show | grep -q '^/swapfile'; then
+  step "4 GB swapfile (overflow room so agent-heavy sessions degrade to slow instead of OOM-killed)"
+  sudo fallocate -l 4G /swapfile
+  sudo chmod 600 /swapfile
+  sudo mkswap /swapfile
+  sudo swapon /swapfile
+  grep -q '^/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab >/dev/null
+  echo 'vm.swappiness=10' | sudo tee /etc/sysctl.d/99-jarvis-swap.conf >/dev/null
+  sudo sysctl -q -p /etc/sysctl.d/99-jarvis-swap.conf
+else
+  step "Swapfile already active"
+fi
+
 if ! command -v node >/dev/null || [ "$(node -e 'process.stdout.write(process.versions.node.split(".")[0])')" -lt 20 ]; then
   step "Node.js 20 (nodesource)"
   curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -

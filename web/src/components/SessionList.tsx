@@ -1,9 +1,21 @@
 import { useMemo, useState } from "react";
-import { api } from "../api";
+import { apiFor } from "../api";
 import { groupByRepo } from "../sessionGroups";
-import type { SessionSummary } from "../types";
+import type { CloudStatus, SessionOrigin, SessionSummary } from "../types";
 import ContextBadge from "./ContextBadge";
 import SessionDetailsModal from "./SessionDetailsModal";
+
+function CloudIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={className}>
+      <path
+        d="M17.5 19a4.5 4.5 0 0 0 .42-8.98 6 6 0 0 0-11.7 1.62A3.75 3.75 0 0 0 6.75 19h10.75Z"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
 
 const STATUS_COLOR: Record<string, string> = {
   live: "bg-emerald-400 shadow-[0_0_5px_rgba(52,211,153,0.7)]",
@@ -26,16 +38,20 @@ function relativeTime(ms: number): string {
 
 export default function SessionList({
   sessions,
+  cloud,
   selectedId,
   onSelect,
   onCreate,
   onRefresh,
+  onReconnect,
 }: {
   sessions: SessionSummary[];
+  cloud: CloudStatus;
   selectedId: string | undefined;
   onSelect: (id: string) => void;
   onCreate: () => void;
   onRefresh: () => void;
+  onReconnect: () => Promise<void>;
 }) {
   const [query, setQuery] = useState("");
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -45,6 +61,21 @@ export default function SessionList({
   const [editValue, setEditValue] = useState("");
   const [detailsId, setDetailsId] = useState<string | undefined>();
   const [stopping, setStopping] = useState(false);
+  const [reconnecting, setReconnecting] = useState(false);
+
+  const originOf = useMemo(() => {
+    const byId = new Map(sessions.map((s) => [s.claudeSessionId, s.origin ?? "local"] as const));
+    return (id: string): SessionOrigin => byId.get(id) ?? "local";
+  }, [sessions]);
+
+  async function reconnect() {
+    setReconnecting(true);
+    try {
+      await onReconnect();
+    } finally {
+      setReconnecting(false);
+    }
+  }
 
   const groups = useMemo(() => {
     const all = groupByRepo(sessions);
@@ -83,7 +114,7 @@ export default function SessionList({
     try {
       // "Stop" is bulk-close: kill + hide from the panel. Sessions still
       // auto-reappear if /resume'd later (see api.closeSession).
-      await Promise.all([...checked].map((id) => api.closeSession(id).catch(() => {})));
+      await Promise.all([...checked].map((id) => apiFor(originOf(id)).closeSession(id).catch(() => {})));
       setChecked(new Set());
       onRefresh();
     } finally {
@@ -102,14 +133,14 @@ export default function SessionList({
     const name = editValue.trim();
     setEditingId(undefined);
     if (!id || !name) return;
-    await api.renameSession(id, name).catch(() => {});
+    await apiFor(originOf(id)).renameSession(id, name).catch(() => {});
     onRefresh();
   }
 
   async function closeSession(id: string) {
     setMenuId(undefined);
     if (!window.confirm("Close this session? It will be stopped and removed from the list. /resume-ing it later brings it back.")) return;
-    await api.closeSession(id).catch(() => {});
+    await apiFor(originOf(id)).closeSession(id).catch(() => {});
     setChecked((prev) => {
       const next = new Set(prev);
       next.delete(id);
@@ -120,6 +151,31 @@ export default function SessionList({
 
   return (
     <div className="flex h-full flex-col">
+      {cloud.configured && (
+        <div
+          className="flex items-center gap-2 border-b border-white/8 px-3 py-2"
+          title={cloud.url ? `${cloud.url}${cloud.error ? ` — ${cloud.error}` : ""}` : undefined}
+        >
+          <CloudIcon className={`h-3.5 w-3.5 shrink-0 ${cloud.connected ? "text-sky-300" : "text-neutral-500"}`} />
+          <span
+            className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+              cloud.connected ? "bg-emerald-400 shadow-[0_0_5px_rgba(52,211,153,0.7)]" : "bg-red-400"
+            }`}
+          />
+          <span className="truncate text-[11px] text-neutral-400">
+            Cloud {cloud.connected ? "connected" : "disconnected"}
+          </span>
+          {!cloud.connected && (
+            <button
+              onClick={reconnect}
+              disabled={reconnecting}
+              className="ml-auto shrink-0 rounded-lg bg-sky-400/15 px-2 py-0.5 text-[11px] font-medium text-sky-300 ring-1 ring-inset ring-sky-400/30 transition hover:bg-sky-400/25 active:scale-[0.97] disabled:opacity-50"
+            >
+              {reconnecting ? "Connecting…" : "Reconnect"}
+            </button>
+          )}
+        </div>
+      )}
       <div className="flex items-center justify-between gap-2 border-b border-white/8 px-3 py-3">
         <span className="text-[13px] font-medium tracking-wide text-neutral-300">Sessions</span>
         <div className="flex items-center gap-2">
@@ -169,11 +225,12 @@ export default function SessionList({
           </div>
         )}
         {groups.map((g) => {
-          const isCollapsed = collapsed.has(g.repoPath);
+          const groupKey = `${g.origin}:${g.repoPath}`;
+          const isCollapsed = collapsed.has(groupKey);
           return (
-            <div key={g.repoPath} className="px-1.5 pt-1.5">
+            <div key={groupKey} className="px-1.5 pt-1.5">
               <button
-                onClick={() => toggle(g.repoPath)}
+                onClick={() => toggle(groupKey)}
                 className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left transition hover:bg-white/5"
               >
                 <svg
@@ -188,6 +245,7 @@ export default function SessionList({
                 <span className="truncate text-[11px] font-semibold uppercase tracking-wider text-neutral-500">
                   {g.label}
                 </span>
+                {g.origin === "cloud" && <CloudIcon className="h-3 w-3 shrink-0 text-sky-300/80" />}
                 <span className="ml-auto shrink-0 text-[10px] text-neutral-600">{g.sessions.length}</span>
               </button>
 
@@ -301,7 +359,7 @@ export default function SessionList({
         })}
       </div>
 
-      {detailsId && <SessionDetailsModal id={detailsId} onClose={() => setDetailsId(undefined)} />}
+      {detailsId && <SessionDetailsModal id={detailsId} origin={originOf(detailsId)} onClose={() => setDetailsId(undefined)} />}
     </div>
   );
 }

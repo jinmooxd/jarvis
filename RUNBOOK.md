@@ -101,9 +101,18 @@ never exposed to the public internet.
    **Create → Droplets**, then choose:
    - **Region:** closest to you (e.g. *New York* or *San Francisco*).
    - **OS image:** **Ubuntu 24.04 (LTS) x64**.
-   - **Size:** *Basic* → *Regular* → **$12/mo — 2 GB RAM / 1 vCPU**.
-     (Don't take the 1 GB one; compiling node-pty and running builds inside
-     sessions will swap-thrash.)
+   - **Size:** *Basic* → *Regular* → **$12/mo — 2 GB RAM / 1 vCPU** to
+     start. (Don't take the 1 GB one; compiling node-pty and running builds
+     inside sessions will swap-thrash.)
+
+     **Sizing plan:** 2 GB fits 2–3 plain sessions, but agent teams spawn a
+     separate ~170 MB `claude` process per teammate, so heavy fan-out will
+     outgrow it. `setup.sh` adds a 4 GB swapfile so hitting the limit means
+     *lag*, not OOM-killed sessions. If sessions all get sluggish at once
+     (confirm with `free -h` — swap deep in use), resize to
+     **$24/mo — 4 GB / 2 vCPU**: dashboard → droplet → **Resize** → choose
+     the **CPU and RAM only** option (reversible, ~1 min downtime; tmux dies
+     with the reboot, but sessions auto-resume on next attach as usual).
    - **Authentication:** *SSH Key* → **New SSH Key** → paste the key from
      step 2 → name it `macbook`.
    - **Hostname:** `jarvis-box`.
@@ -211,6 +220,28 @@ the create dialog and enter its absolute path (e.g. `/home/jarvis/your-repo`)
       listed there; `sudo systemctl restart jarvis` → session unaffected.
 - [ ] Close the MacBook lid, keep driving from the phone. ✅
 
+### Step 10 (optional) — one UI for local + cloud sessions (2 min, on the Mac)
+
+Your Mac's jarvis can act as a hub for the droplet's: the session list shows
+both machines (cloud repos get a ☁ marker), `+ Create` gets a **This machine
+/ Cloud** toggle, and a bar at the top of the left panel shows cloud
+connectivity with a **Reconnect** button when it drops (e.g. Tailscale
+toggled off). Point the Mac's jarvis at the droplet:
+
+```bash
+echo '{ "cloudUrl": "https://jarvis-box.<tailnet>.ts.net" }' > ~/jarvis/server/data/config.json
+```
+
+then restart the local jarvis. (Setting the `CLOUD_URL` env var works too and
+takes precedence.) The droplet side needs no configuration.
+
+Cloud sessions stream through the local server over your tailnet, so the Mac
+must be connected to Tailscale to see them. Opening the droplet URL directly
+(e.g. from the phone) keeps working unchanged and shows only the droplet's
+own sessions. Remember the split: sessions created under **Cloud** use the
+droplet's RAM/CPU and its repo checkouts; **This machine** sessions live and
+die with the Mac.
+
 ---
 
 ## Troubleshooting
@@ -222,6 +253,7 @@ the create dialog and enter its absolute path (e.g. `/home/jarvis/your-repo`)
 | `tailscale serve` complains HTTPS isn't enabled | Admin console → DNS → enable MagicDNS + HTTPS Certificates (Step 6.1) |
 | Phone can't load the URL | Tailscale toggle off on the phone, or different tailnet account |
 | Session shows **cold** after a droplet reboot | Expected — tmux dies on reboot. Click the session; jarvis resumes the conversation automatically (`claude --resume`) |
+| All sessions sluggish at once, or a long-running session died on its own | Memory pressure from too many agent processes — `free -h` will show swap deep in use. Resize to 4 GB / 2 vCPU (see the sizing plan in Step 2) |
 | Copy from the terminal doesn't reach the clipboard | You're on plain `http://` — use the `https://…ts.net` URL |
 | Top bar says "Usage limits will appear…" forever | Known gap (the usage feed lost its producer in the SDK→CLI rewrite); harmless |
 

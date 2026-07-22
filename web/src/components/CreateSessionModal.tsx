@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { api } from "../api";
-import type { ModelOption, WorktreeChoice, WorktreeInfo } from "../types";
+import { apiFor } from "../api";
+import type { CloudStatus, ModelOption, SessionOrigin, WorktreeChoice, WorktreeInfo } from "../types";
 
 const fieldCls =
   "w-full rounded-lg border border-white/8 bg-black/25 px-2.5 py-1.5 text-sm text-neutral-200 placeholder:text-neutral-600 focus:border-white/25 focus:outline-none";
@@ -8,12 +8,15 @@ const ghostBtnCls =
   "shrink-0 rounded-lg border border-white/8 px-2 text-xs text-neutral-400 transition hover:bg-white/5 hover:text-neutral-200";
 
 export default function CreateSessionModal({
+  cloud,
   onClose,
   onCreated,
 }: {
+  cloud: CloudStatus;
   onClose: () => void;
   onCreated: (id: string) => void;
 }) {
+  const [origin, setOrigin] = useState<SessionOrigin>("local");
   const [repos, setRepos] = useState<string[]>([]);
   const [models, setModels] = useState<ModelOption[]>([]);
   const [worktrees, setWorktrees] = useState<WorktreeInfo[]>([]);
@@ -29,16 +32,27 @@ export default function CreateSessionModal({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | undefined>();
 
+  // Repos, models, and worktrees all come from the machine the session will
+  // run on, so everything refetches when the location toggles.
   useEffect(() => {
-    api.listRepos().then((r) => {
-      setRepos(r);
-      if (r.length > 0) setRepoPath(r[0]);
-    });
-    api.listModels().then((m) => {
-      setModels(m);
-      if (m.length > 0) setModel(m[0].value);
-    });
-  }, []);
+    setRepos([]);
+    setModels([]);
+    setRepoPath("");
+    apiFor(origin)
+      .listRepos()
+      .then((r) => {
+        setRepos(r);
+        if (r.length > 0) setRepoPath(r[0]);
+      })
+      .catch(() => setRepos([]));
+    apiFor(origin)
+      .listModels()
+      .then((m) => {
+        setModels(m);
+        if (m.length > 0) setModel(m[0].value);
+      })
+      .catch(() => setModels([]));
+  }, [origin]);
 
   const effectiveRepo = useCustomRepo ? customRepo : repoPath;
 
@@ -47,9 +61,9 @@ export default function CreateSessionModal({
       setWorktrees([]);
       return;
     }
-    api.listWorktrees(effectiveRepo).then(setWorktrees).catch(() => setWorktrees([]));
+    apiFor(origin).listWorktrees(effectiveRepo).then(setWorktrees).catch(() => setWorktrees([]));
     setWorktreeChoice("main");
-  }, [effectiveRepo]);
+  }, [effectiveRepo, origin]);
 
   async function handleSubmit() {
     if (!effectiveRepo || !model || !name.trim()) {
@@ -70,7 +84,7 @@ export default function CreateSessionModal({
     setSubmitting(true);
     setError(undefined);
     try {
-      const { claudeSessionId } = await api.createSession({
+      const { claudeSessionId } = await apiFor(origin).createSession({
         name: name.trim(),
         repoPath: effectiveRepo,
         model,
@@ -90,6 +104,33 @@ export default function CreateSessionModal({
         <h2 className="mb-4 text-[13px] font-semibold tracking-wide text-neutral-200">New Session</h2>
 
         <div className="space-y-3.5">
+          {cloud.configured && (
+            <div>
+              <label className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-neutral-500">
+                Location
+              </label>
+              <div className="flex overflow-hidden rounded-lg border border-white/8">
+                {(["local", "cloud"] as const).map((o) => {
+                  const disabled = o === "cloud" && !cloud.connected;
+                  return (
+                    <button
+                      key={o}
+                      onClick={() => !disabled && setOrigin(o)}
+                      disabled={disabled}
+                      title={disabled ? "Cloud is disconnected — reconnect from the session list" : undefined}
+                      className={`flex-1 px-2.5 py-1.5 text-xs font-medium transition ${
+                        origin === o
+                          ? "bg-neutral-100/90 text-neutral-900"
+                          : "bg-black/25 text-neutral-400 hover:bg-white/5 hover:text-neutral-200 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-black/25"
+                      }`}
+                    >
+                      {o === "local" ? "This machine" : "Cloud ☁"}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           <div>
             <label className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-neutral-500">
               Name
