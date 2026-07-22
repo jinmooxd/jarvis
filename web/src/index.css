@@ -2,6 +2,12 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  /* JS overrides this with visualViewport height so the layout shrinks above
+     the on-screen keyboard on iOS (which never resizes the layout viewport) */
+  --app-height: 100dvh;
+}
+
 html, body, #root {
   height: 100%;
 }
@@ -54,4 +60,9 @@ body {
   background-color: rgba(8, 8, 9, 0.75);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
+}
+
+/* keep the mobile key bar above the iPhone home indicator in standalone mode */
+.pb-safe {
+  padding-bottom: calc(0.375rem + env(safe-area-inset-bottom));
 }

@@ -185,7 +185,7 @@ export default function TerminalView({
       </div>
 
       {touch && (
-        <div className="flex gap-1.5 overflow-x-auto border-t border-white/6 px-2 py-1.5">
+        <div className="pb-safe flex gap-1.5 overflow-x-auto border-t border-white/6 px-2 pt-1.5">
           {MOBILE_KEYS.map((k) => (
             <button
               key={k.label}

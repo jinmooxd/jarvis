@@ -1,0 +1,23 @@
+# Template — deploy/setup.sh fills in __USER__, __DIR__, __NODE__ and
+# installs it as /etc/systemd/system/jarvis.service.
+[Unit]
+Description=jarvis claude session server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=__USER__
+WorkingDirectory=__DIR__
+Environment=PORT=3001
+# jarvis stays on 127.0.0.1; `tailscale serve` publishes it to the tailnet
+# over HTTPS. To bind all interfaces instead (behind a firewall), uncomment:
+# Environment=HOST=0.0.0.0
+ExecStart=__NODE__ __DIR__/server/dist/index.js
+Restart=always
+RestartSec=2
+# Critical: default cgroup killing would take the detached tmux server (and
+# every claude session in it) down with jarvis. Kill only the node process.
+KillMode=process
+
+[Install]
+WantedBy=multi-user.target

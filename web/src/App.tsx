@@ -22,6 +22,24 @@ export default function App() {
     return () => clearInterval(interval);
   }, [refresh]);
 
+  // iOS never resizes the layout viewport for the on-screen keyboard — only
+  // visualViewport shrinks. Mirror its height into --app-height so the
+  // terminal (and its key bar) stays visible above the keyboard.
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const apply = () => {
+      document.documentElement.style.setProperty("--app-height", `${Math.round(vv.height)}px`);
+      window.scrollTo(0, 0);
+    };
+    vv.addEventListener("resize", apply);
+    apply();
+    return () => {
+      vv.removeEventListener("resize", apply);
+      document.documentElement.style.removeProperty("--app-height");
+    };
+  }, []);
+
   // Cmd+Up / Cmd+Down cycle sessions in the list's visual order, crossing
   // repo-group boundaries and wrapping at the ends. Capture phase so the
   // shortcut wins even while the terminal has focus.
@@ -49,7 +67,7 @@ export default function App() {
   // On phones there isn't room for both panels: show the list, or the
   // terminal with a back button once a session is selected.
   return (
-    <div className="flex h-screen flex-col overflow-hidden">
+    <div className="flex flex-col overflow-hidden" style={{ height: "var(--app-height)" }}>
       <TopBar />
       <div className="flex flex-1 gap-3 overflow-hidden p-2 md:p-3">
         <div
