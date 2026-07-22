@@ -7,6 +7,9 @@ import SessionDetailsModal from "./SessionDetailsModal";
 
 const STATUS_COLOR: Record<string, string> = {
   live: "bg-emerald-400 shadow-[0_0_5px_rgba(52,211,153,0.7)]",
+  // running in another terminal (e.g. Cursor) — pulsing amber to distinguish
+  // from a jarvis-owned live session.
+  external: "bg-amber-400 shadow-[0_0_5px_rgba(251,191,36,0.7)] animate-pulse",
   cold: "bg-neutral-600",
 };
 
@@ -47,7 +50,7 @@ export default function SessionList({
     const all = groupByRepo(sessions);
     const q = query.trim().toLowerCase();
     if (!q) return all;
-    // Search only reaches sessions we still have open (not cold) — closed
+    // Search reaches live and external (running-elsewhere) sessions; cold
     // sessions have to be found by browsing, not searched.
     return all
       .map((g) => ({
@@ -78,7 +81,9 @@ export default function SessionList({
   async function stopChecked() {
     setStopping(true);
     try {
-      await Promise.all([...checked].map((id) => api.killSession(id).catch(() => {})));
+      // "Stop" is bulk-close: kill + hide from the panel. Sessions still
+      // auto-reappear if /resume'd later (see api.closeSession).
+      await Promise.all([...checked].map((id) => api.closeSession(id).catch(() => {})));
       setChecked(new Set());
       onRefresh();
     } finally {

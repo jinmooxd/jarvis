@@ -1,4 +1,4 @@
-export type SessionStatus = "live" | "cold";
+export type SessionStatus = "live" | "external" | "cold";
 
 export type ContextInfo = {
   usedTokens: number;

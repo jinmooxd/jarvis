@@ -8,8 +8,9 @@ import { WebSocketServer, type WebSocket } from "ws";
 import type { IPty } from "node-pty";
 import { listKnownRepos, listModelOptions } from "./claudeConfig.js";
 import { listWorktrees } from "./worktrees.js";
-import { listAllSessions, getSessionDetails } from "./sessions.js";
-import { createSession, ensureLive, attachSession, killSession } from "./runner.js";
+import { listAllSessions, getSessionDetails, isExternallyActive } from "./sessions.js";
+import { createSession, ensureLive, attachSession, killSession, isLive } from "./runner.js";
+import { startMirror, type MirrorHandle } from "./mirror.js";
 import { getRecord, putRecord, markClosed } from "./store.js";
 import { listSessions } from "@anthropic-ai/claude-agent-sdk";
 import { getUsageState, onUsageUpdate } from "./usage.js";
@@ -133,8 +134,17 @@ function handleUsageSocket(ws: WebSocket) {
 // then {type:"input",data} keystrokes and {type:"resize",cols,rows}. Server
 // sends raw terminal bytes as binary frames; JSON text frames only for
 // lifecycle ({type:"exit"} / {type:"error"}).
+//
+// Two init modes:
+//  - Live / cold  → attach a tmux PTY (ensureLive forks `claude --resume` if
+//    the session isn't already on the jarvis socket). Interactive.
+//  - External     → the session is running in another terminal (not on the
+//    jarvis socket) with a recently-touched transcript. We do NOT fork a
+//    competing process; instead we stream a read-only mirror of its transcript
+//    and ignore input/resize.
 function handleSessionSocket(ws: WebSocket, claudeSessionId: string) {
   let term: IPty | undefined;
+  let mirror: MirrorHandle | undefined;
 
   ws.on("message", async (raw, isBinary) => {
     if (isBinary) return;
@@ -146,7 +156,12 @@ function handleSessionSocket(ws: WebSocket, claudeSessionId: string) {
     }
 
     try {
-      if (msg.type === "init" && !term) {
+      if (msg.type === "init" && !term && !mirror) {
+        // Not on the jarvis socket but active elsewhere → read-only mirror.
+        if (!(await isLive(claudeSessionId)) && (await isExternallyActive(claudeSessionId))) {
+          mirror = await startMirror(claudeSessionId, ws);
+          return;
+        }
         await ensureLive(claudeSessionId);
         const t = attachSession(claudeSessionId, msg.cols || 80, msg.rows || 24);
         term = t;
@@ -164,6 +179,7 @@ function handleSessionSocket(ws: WebSocket, claudeSessionId: string) {
       } else if (msg.type === "resize" && term) {
         term.resize(Math.max(2, msg.cols | 0), Math.max(2, msg.rows | 0));
       }
+      // input/resize while mirroring are ignored — the mirror is read-only.
     } catch (err) {
       if (ws.readyState === ws.OPEN) {
         ws.send(JSON.stringify({ type: "error", message: err instanceof Error ? err.message : String(err) }));
@@ -171,8 +187,12 @@ function handleSessionSocket(ws: WebSocket, claudeSessionId: string) {
     }
   });
 
-  // Detaches this viewer's tmux client; the claude session keeps running.
-  ws.on("close", () => term?.kill());
+  // Detaches this viewer's tmux client (the claude session keeps running) and
+  // tears down any transcript watcher.
+  ws.on("close", () => {
+    term?.kill();
+    mirror?.close();
+  });
 }
 
 server.listen(PORT, HOST, () => {

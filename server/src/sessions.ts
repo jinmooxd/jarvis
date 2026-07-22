@@ -1,4 +1,4 @@
-import { open, readdir } from "node:fs/promises";
+import { open, readdir, stat } from "node:fs/promises";
 import { hostname } from "node:os";
 import { join } from "node:path";
 import { listSessions } from "@anthropic-ai/claude-agent-sdk";
@@ -6,7 +6,33 @@ import { CLAUDE_DIR, contextWindowForModel } from "./config.js";
 import { getAllRecords, getClosedMap, getRecord, unmarkClosed } from "./store.js";
 import { getPanePid, isLive, listLiveSessionIds } from "./runner.js";
 
-export type SessionStatus = "live" | "cold";
+export type SessionStatus = "live" | "external" | "cold";
+
+// A session not on the jarvis tmux socket but whose transcript was touched
+// within this window is treated as "external" — actively running somewhere
+// else (e.g. a `claude` started directly in a Cursor terminal).
+export const EXTERNAL_ACTIVE_MS = 120_000;
+
+function isRecentlyActive(lastModified: number): boolean {
+  return Date.now() - lastModified < EXTERNAL_ACTIVE_MS;
+}
+
+// For callers (e.g. the WS handler) that only have the session id: derive
+// external-activity from the transcript file's mtime.
+export async function isExternallyActive(
+  sessionId: string,
+  lastModified?: number,
+): Promise<boolean> {
+  if (lastModified !== undefined) return isRecentlyActive(lastModified);
+  const path = await findTranscript(sessionId);
+  if (!path) return false;
+  try {
+    const { mtimeMs } = await stat(path);
+    return isRecentlyActive(mtimeMs);
+  } catch {
+    return false;
+  }
+}
 
 export type ContextInfo = {
   usedTokens: number;
@@ -47,7 +73,13 @@ export async function listAllSessions(): Promise<SessionSummary[]> {
       await unmarkClosed(s.sessionId);
     }
     const record = records[s.sessionId];
-    const status: SessionStatus = live.has(s.sessionId) ? "live" : "cold";
+    // live (on the jarvis socket) wins; otherwise a recently-touched
+    // transcript means it's running externally; else it's cold.
+    const status: SessionStatus = live.has(s.sessionId)
+      ? "live"
+      : isRecentlyActive(s.lastModified)
+        ? "external"
+        : "cold";
     out.push({
       claudeSessionId: s.sessionId,
       name: record?.name ?? s.customTitle ?? s.summary ?? s.firstPrompt ?? "Untitled session",
@@ -56,7 +88,7 @@ export async function listAllSessions(): Promise<SessionSummary[]> {
       model: record?.model ?? "",
       status,
       context:
-        status === "live" || record
+        status === "live" || status === "external" || record
           ? await contextFor(s.sessionId, s.lastModified, record?.model, record?.oneMillionContext)
           : undefined,
       lastModified: s.lastModified,
@@ -119,7 +151,7 @@ async function contextFor(
   return context;
 }
 
-async function findTranscript(sessionId: string): Promise<string | undefined> {
+export async function findTranscript(sessionId: string): Promise<string | undefined> {
   const cached = transcriptPathCache.get(sessionId);
   if (cached) return cached;
   const projectsDir = join(CLAUDE_DIR, "projects");
@@ -169,10 +201,15 @@ export async function getSessionDetails(sessionId: string): Promise<SessionDetai
     listSessions().then((all) => all.find((s) => s.sessionId === sessionId)),
   ]);
   const usage = await readLastUsage(sessionId).catch(() => undefined);
+  const status: SessionStatus = live
+    ? "live"
+    : sdk && isRecentlyActive(sdk.lastModified)
+      ? "external"
+      : "cold";
   return {
     claudeSessionId: sessionId,
     name: record?.name ?? sdk?.customTitle ?? sdk?.summary ?? sdk?.firstPrompt ?? "Untitled session",
-    status: live ? "live" : "cold",
+    status,
     pid: live ? await getPanePid(sessionId) : undefined,
     cwd: record?.worktreePath ?? sdk?.cwd ?? record?.repoPath,
     host: hostname(),
