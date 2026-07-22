@@ -106,6 +106,18 @@ export default function TerminalView({
       setConn((c) => (c === "exited" ? c : "disconnected"));
     };
 
+    // xterm.js sends a bare \r for Enter regardless of modifiers, so the
+    // claude TUI can't tell Shift+Enter apart and submits instead of adding a
+    // linebreak. Send ESC+CR — the sequence claude's /terminal-setup binds
+    // Shift+Enter to — and swallow the key.
+    term.attachCustomKeyEventHandler((e) => {
+      if (e.type === "keydown" && e.key === "Enter" && e.shiftKey) {
+        sendJson({ type: "input", data: "\x1b\r" });
+        return false;
+      }
+      return true;
+    });
+
     term.onData((data) => sendJson({ type: "input", data }));
     term.onBinary((data) => sendJson({ type: "input", data }));
     term.onResize(({ cols, rows }) => sendJson({ type: "resize", cols, rows }));
