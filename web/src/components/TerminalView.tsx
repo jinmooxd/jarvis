@@ -131,9 +131,75 @@ export default function TerminalView({
     });
     ro.observe(container);
 
+    // xterm.js has no touch scrolling, and the scrollback lives in tmux (the
+    // browser-side buffer is just the visible alt screen), so a drag on the
+    // terminal scrolls nothing on phones. Re-emit vertical drags as wheel
+    // events on the terminal: with tmux `mouse on` xterm reports those to
+    // tmux as mouse-wheel, which scrolls copy-mode — the same path desktop
+    // trackpad/wheel scrolling takes. A decaying flick keeps momentum.
+    const screen = container.querySelector<HTMLElement>(".xterm-screen") ?? container;
+    let touchX = 0;
+    let touchY = 0;
+    let touchVel = 0; // px per ms, + = scroll down
+    let touchAt = 0;
+    let glideRaf = 0;
+    const emitWheel = (deltaY: number) =>
+      screen.dispatchEvent(
+        new WheelEvent("wheel", {
+          deltaY,
+          deltaMode: WheelEvent.DOM_DELTA_PIXEL,
+          clientX: touchX,
+          clientY: touchY,
+          bubbles: true,
+          cancelable: true,
+        })
+      );
+    const onTouchStart = (e: TouchEvent) => {
+      cancelAnimationFrame(glideRaf);
+      touchVel = 0;
+      touchX = e.touches[0].clientX;
+      touchY = e.touches[0].clientY;
+      touchAt = e.timeStamp;
+    };
+    const onTouchMove = (e: TouchEvent) => {
+      if (e.touches.length !== 1) return;
+      e.preventDefault();
+      const t = e.touches[0];
+      const dy = touchY - t.clientY;
+      touchVel = dy / Math.max(e.timeStamp - touchAt, 1);
+      touchX = t.clientX;
+      touchY = t.clientY;
+      touchAt = e.timeStamp;
+      emitWheel(dy);
+    };
+    const onTouchEnd = () => {
+      if (Math.abs(touchVel) < 0.1) return;
+      let last = performance.now();
+      const glide = (now: number) => {
+        const dt = now - last;
+        last = now;
+        touchVel *= 0.95 ** (dt / 16.7);
+        if (Math.abs(touchVel) < 0.02) return;
+        emitWheel(touchVel * dt);
+        glideRaf = requestAnimationFrame(glide);
+      };
+      glideRaf = requestAnimationFrame(glide);
+    };
+    if (touch) {
+      container.addEventListener("touchstart", onTouchStart, { passive: true });
+      container.addEventListener("touchmove", onTouchMove, { passive: false });
+      container.addEventListener("touchend", onTouchEnd);
+    }
+
     return () => {
       ro.disconnect();
       cancelAnimationFrame(raf);
+      cancelAnimationFrame(glideRaf);
+      if (touch) {
+        container.removeEventListener("touchstart", onTouchStart);
+        container.removeEventListener("touchmove", onTouchMove);
+        container.removeEventListener("touchend", onTouchEnd);
+      }
       ws.close();
       term.dispose();
       wsRef.current = null;
